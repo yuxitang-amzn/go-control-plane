@@ -151,7 +151,13 @@ func main() {
 	eds := cache.NewLinearCache(typeURL)
 	if mux {
 		configCache = &cache.MuxCache{
-			Classify: func(req cache.Request) string {
+			Classify: func(req *cache.Request) string {
+				if req.TypeUrl == typeURL {
+					return "eds"
+				}
+				return "default"
+			},
+			ClassifyDelta: func(req *cache.DeltaRequest) string {
 				if req.TypeUrl == typeURL {
 					return "eds"
 				}
