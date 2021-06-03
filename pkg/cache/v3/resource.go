@@ -101,15 +101,12 @@ func GetResourceName(res types.Resource) string {
 
 // MarshalResource converts the Resource to MarshaledResource
 func MarshalResource(resource types.Resource) (types.MarshaledResource, error) {
-	// b := proto.NewBuffer(nil)
-	opts := proto.MarshalOptions{Deterministic: true}
-	b.SetDeterministic(true)
-	err := b.Marshal(resource)
+	b, err := proto.MarshalOptions{Deterministic: true}.Marshal(resource)
 	if err != nil {
 		return nil, err
 	}
 
-	return b.Bytes(), nil
+	return b, nil
 }
 
 // GetResourceReferences returns the names for dependent resources (EDS cluster

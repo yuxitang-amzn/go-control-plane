@@ -27,6 +27,8 @@ import (
 	"time"
 
 	"github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/cache/v3/linear"
+	"github.com/envoyproxy/go-control-plane/pkg/cache/v3/mux"
 	"github.com/envoyproxy/go-control-plane/pkg/server/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/test"
 	"github.com/envoyproxy/go-control-plane/pkg/test/resource/v3"
@@ -53,7 +55,7 @@ var (
 	tcpListeners  int
 	runtimes      int
 	tls           bool
-	mux           bool
+	useMux        bool
 
 	nodeID string
 )
@@ -132,7 +134,7 @@ func init() {
 	flag.IntVar(&tcpListeners, "tcp", 2, "Number of TCP pass-through listeners")
 
 	// Enable a muxed cache with partial snapshots
-	flag.BoolVar(&mux, "mux", false, "Enable muxed linear cache for EDS")
+	flag.BoolVar(&useMux, "mux", false, "Enable muxed linear cache for EDS")
 }
 
 // main returns code 1 if any of the batches failed to pass all requests
@@ -148,9 +150,9 @@ func main() {
 	config := cache.NewSnapshotCache(mode == resource.Ads, cache.IDHash{}, logger{})
 	var configCache cache.Cache = config
 	typeURL := "type.googleapis.com/envoy.config.endpoint.v3.ClusterLoadAssignment"
-	eds := cache.NewLinearCache(typeURL)
-	if mux {
-		configCache = &cache.MuxCache{
+	eds := linear.NewLinearCache(typeURL)
+	if useMux {
+		configCache = &mux.MuxCache{
 			Classify: func(req *cache.Request) string {
 				if req.TypeUrl == typeURL {
 					return "eds"
@@ -215,7 +217,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		if mux {
+		if useMux {
 			for name, res := range snapshot.GetResources(typeURL) {
 				eds.UpdateResource(name, res)
 			}

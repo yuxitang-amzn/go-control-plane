@@ -3,9 +3,9 @@ package cache_test
 import (
 	"testing"
 
-	"github.com/golang/protobuf/ptypes"
-	"github.com/golang/protobuf/ptypes/any"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
@@ -36,18 +36,18 @@ func TestResponseGetDiscoveryResponse(t *testing.T) {
 	assert.Same(t, discoveryResponse, cachedResponse)
 
 	r := &route.RouteConfiguration{}
-	err = ptypes.UnmarshalAny(discoveryResponse.Resources[0], r)
+	err = anypb.UnmarshalTo(discoveryResponse.Resources[0], r, proto.UnmarshalOptions{})
 	assert.Nil(t, err)
 	assert.Equal(t, r.Name, resourceName)
 }
 
 func TestPassthroughResponseGetDiscoveryResponse(t *testing.T) {
 	routes := []types.Resource{&route.RouteConfiguration{Name: resourceName}}
-	rsrc, err := ptypes.MarshalAny(routes[0])
+	rsrc, err := anypb.New(routes[0])
 	assert.Nil(t, err)
 	dr := &discovery.DiscoveryResponse{
 		TypeUrl:     resource.RouteType,
-		Resources:   []*any.Any{rsrc},
+		Resources:   []*anypb.Any{rsrc},
 		VersionInfo: "v",
 	}
 	resp := cache.PassthroughResponse{
@@ -61,7 +61,7 @@ func TestPassthroughResponseGetDiscoveryResponse(t *testing.T) {
 	assert.Equal(t, len(discoveryResponse.Resources), 1)
 
 	r := &route.RouteConfiguration{}
-	err = ptypes.UnmarshalAny(discoveryResponse.Resources[0], r)
+	err = anypb.UnmarshalTo(discoveryResponse.Resources[0], r, proto.UnmarshalOptions{})
 	assert.Nil(t, err)
 	assert.Equal(t, r.Name, resourceName)
 	assert.Equal(t, discoveryResponse, dr)
@@ -87,14 +87,14 @@ func TestHeartbeatResponseGetDiscoveryResponse(t *testing.T) {
 	assert.Same(t, discoveryResponse, cachedResponse)
 
 	r := &route.RouteConfiguration{}
-	err = ptypes.UnmarshalAny(discoveryResponse.Resources[0], r)
+	err = anypb.UnmarshalTo(discoveryResponse.Resources[0], r, proto.UnmarshalOptions{})
 	assert.Nil(t, err)
 	assert.Equal(t, r.Name, resourceName)
 }
 
-func isTTLResource(resource *any.Any) bool {
+func isTTLResource(resource *anypb.Any) bool {
 	wrappedResource := &discovery.Resource{}
-	err := ptypes.UnmarshalAny(resource, wrappedResource)
+	err := anypb.UnmarshalTo(resource, wrappedResource, proto.UnmarshalOptions{})
 	if err != nil {
 		return false
 	}

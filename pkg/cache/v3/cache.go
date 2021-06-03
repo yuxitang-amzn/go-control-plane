@@ -21,12 +21,12 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/durationpb"
+
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 
-	"github.com/golang/protobuf/proto"
-
-	"github.com/golang/protobuf/ptypes"
-	"github.com/golang/protobuf/ptypes/any"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	"github.com/envoyproxy/go-control-plane/pkg/server/stream/v3"
@@ -188,7 +188,7 @@ func (r *RawResponse) GetDiscoveryResponse() (*discovery.DiscoveryResponse, erro
 
 	if marshaledResponse == nil {
 
-		marshaledResources := make([]*any.Any, len(r.Resources))
+		marshaledResources := make([]*anypb.Any, len(r.Resources))
 
 		for i, resource := range r.Resources {
 			maybeTtldResource, resourceType, err := r.maybeCreateTtlResource(resource)
@@ -199,7 +199,7 @@ func (r *RawResponse) GetDiscoveryResponse() (*discovery.DiscoveryResponse, erro
 			if err != nil {
 				return nil, err
 			}
-			marshaledResources[i] = &any.Any{
+			marshaledResources[i] = &anypb.Any{
 				TypeUrl: resourceType,
 				Value:   marshaledResource,
 			}
@@ -238,7 +238,7 @@ func (r *RawDeltaResponse) GetDeltaDiscoveryResponse() (*discovery.DeltaDiscover
 			}
 			marshaledResources[i] = &discovery.Resource{
 				Name: name,
-				Resource: &any.Any{
+				Resource: &anypb.Any{
 					TypeUrl: r.DeltaRequest.TypeUrl,
 					Value:   marshaledResource,
 				},
@@ -283,17 +283,17 @@ func (r *RawDeltaResponse) GetNextVersionMap() map[string]string {
 	return r.NextVersionMap
 }
 
-var deltaResourceTypeURL = "type.googleapis.com/" + proto.MessageName(&discovery.Resource{})
+var deltaResourceTypeURL = "type.googleapis.com/" + string(proto.Message(&discovery.Resource{}).ProtoReflect().Descriptor().FullName())
 
 func (r *RawResponse) maybeCreateTtlResource(resource types.ResourceWithTtl) (types.Resource, string, error) {
 	if resource.Ttl != nil {
 		wrappedResource := &discovery.Resource{
 			Name: GetResourceName(resource.Resource),
-			Ttl:  ptypes.DurationProto(*resource.Ttl),
+			Ttl:  durationpb.New(*resource.Ttl),
 		}
 
 		if !r.Heartbeat {
-			any, err := ptypes.MarshalAny(resource.Resource)
+			any, err := anypb.New(resource.Resource)
 			if err != nil {
 				return nil, "", err
 			}

@@ -12,12 +12,13 @@
 //   See the License for the specific language governing permissions and
 //   limitations under the License.
 
-package cache
+package mux
 
 import (
 	"context"
 	"errors"
 
+	"github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/server/stream/v3"
 )
 
@@ -29,37 +30,37 @@ import (
 // making sure there is always a matching cache.
 type MuxCache struct {
 	// Classification functions.
-	Classify      func(*Request) string
-	ClassifyDelta func(*DeltaRequest) string
+	Classify      func(*cache.Request) string
+	ClassifyDelta func(*cache.DeltaRequest) string
 
 	// Muxed caches.
-	Caches map[string]Cache
+	Caches map[string]cache.Cache
 }
 
-var _ Cache = &MuxCache{}
+var _ cache.Cache = &MuxCache{}
 
-func (mux *MuxCache) CreateWatch(request *Request) (chan Response, func()) {
+func (mux *MuxCache) CreateWatch(request *cache.Request) (chan cache.Response, func()) {
 	key := mux.Classify(request)
-	cache, exists := mux.Caches[key]
+	c, exists := mux.Caches[key]
 	if !exists {
-		value := make(chan Response)
+		value := make(chan cache.Response)
 		close(value)
 		return value, nil
 	}
-	return cache.CreateWatch(request)
+	return c.CreateWatch(request)
 }
 
-func (mux *MuxCache) CreateDeltaWatch(request *DeltaRequest, state stream.StreamState) (chan DeltaResponse, func()) {
+func (mux *MuxCache) CreateDeltaWatch(request *cache.DeltaRequest, state stream.StreamState) (chan cache.DeltaResponse, func()) {
 	key := mux.ClassifyDelta(request)
-	cache, exists := mux.Caches[key]
+	c, exists := mux.Caches[key]
 	if !exists {
-		value := make(chan DeltaResponse)
+		value := make(chan cache.DeltaResponse)
 		close(value)
 		return value, nil
 	}
-	return cache.CreateDeltaWatch(request, state)
+	return c.CreateDeltaWatch(request, state)
 }
 
-func (mux *MuxCache) Fetch(ctx context.Context, request *Request) (Response, error) {
+func (mux *MuxCache) Fetch(ctx context.Context, request *cache.Request) (cache.Response, error) {
 	return nil, errors.New("not implemented")
 }
