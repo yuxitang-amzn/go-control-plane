@@ -30,10 +30,59 @@ func (c *LinearCache) CreateDeltaWatch(request *cache.DeltaRequest, state stream
 		return value, nil
 	}
 
-	return value, nil
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	stale := false
+	staleResources := []string{}
+
+	for name, version := range state.ResourceVersions {
+		if c.deltaVersionVector[name] != version {
+			stale = true
+			staleResources = append(staleResources, name)
+		}
+	}
+
+	// If we've detected change, respond
+	if stale {
+		c.respondDelta(value, state.Wildcard, staleResources)
+		return value, nil
+	}
+
+	if state.Wildcard || len(state.ResourceVersions) == 0 {
+		c.deltaWatchAll[value] = struct{}{}
+		return value, func() {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			delete(c.deltaWatchAll, value)
+		}
+	}
+	// We use our stream state here so we can accurately respond to what the server knows about
+	for name := range state.ResourceVersions {
+		set, exists := c.deltaWatches[name]
+		if !exists {
+			set = make(deltaWatches)
+			c.deltaWatches[name] = set
+		}
+		set[value] = struct{}{}
+	}
+
+	return value, func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		for name := range state.ResourceVersions {
+			set, exists := c.deltaWatches[name]
+			if exists {
+				delete(set, value)
+			}
+			if len(set) == 0 {
+				delete(c.deltaWatches, name)
+			}
+		}
+	}
 }
 
-func (c *LinearCache) respondDelta(value chan cache.DeltaResponse, staleResources []string) {
+func (c *LinearCache) respondDelta(value chan cache.DeltaResponse, wildcard bool, staleResources []string) {
 	var resources []types.Resource
 
 	// TODO: optimize the resources slice creations across different clients
@@ -60,18 +109,25 @@ func (c *LinearCache) respondDelta(value chan cache.DeltaResponse, staleResource
 
 func (c *LinearCache) notifyAllDelta(modified map[string]struct{}) {
 	// de-duplicate watches that need to be responded
-	notifyList := make(map[chan cache.Response][]string)
+	notifyList := make(map[chan cache.DeltaResponse][]string)
 	for name := range modified {
-		for watch := range c.watches[name] {
+		for watch := range c.deltaWatches[name] {
 			notifyList[watch] = append(notifyList[watch], name)
 		}
 		delete(c.watches, name)
 	}
 	for value, stale := range notifyList {
-		c.respond(value, stale)
+		c.respondDelta(value, false, stale)
 	}
-	for value := range c.watchAll {
-		c.respond(value, nil)
+	for value := range c.deltaWatchAll {
+		c.respondDelta(value, false, nil)
 	}
 	c.watchAll = make(watches)
+}
+
+func (c *LinearCache) NumDeltaWatches(name string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return len(c.deltaWatches[name]) + len(c.deltaWatchAll)
 }

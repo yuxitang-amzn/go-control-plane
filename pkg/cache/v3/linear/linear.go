@@ -51,9 +51,11 @@ type LinearCache struct {
 	// Version prefix to be sent to the clients
 	versionPrefix string
 	// Versions for each resource by name.
-	versionVector map[string]uint64
-	mu            sync.Mutex
-	log           log.Logger
+	versionVector      map[string]uint64
+	deltaVersionVector map[string]string
+
+	mu  sync.Mutex
+	log log.Logger
 }
 
 var _ cache.Cache = &LinearCache{}
@@ -90,14 +92,15 @@ func WithLogger(log log.Logger) LinearCacheOption {
 // NewLinearCache creates a new cache. See the comments on the struct definition.
 func NewLinearCache(typeURL string, opts ...LinearCacheOption) *LinearCache {
 	out := &LinearCache{
-		typeURL:       typeURL,
-		resources:     make(map[string]types.Resource),
-		watches:       make(map[string]watches),
-		deltaWatches:  make(map[string]deltaWatches),
-		watchAll:      make(watches),
-		deltaWatchAll: make(deltaWatches),
-		version:       0,
-		versionVector: make(map[string]uint64),
+		typeURL:            typeURL,
+		resources:          make(map[string]types.Resource),
+		watches:            make(map[string]watches),
+		deltaWatches:       make(map[string]deltaWatches),
+		watchAll:           make(watches),
+		deltaWatchAll:      make(deltaWatches),
+		version:            0,
+		versionVector:      make(map[string]uint64),
+		deltaVersionVector: make(map[string]string),
 	}
 	for _, opt := range opts {
 		opt(out)
@@ -106,19 +109,32 @@ func NewLinearCache(typeURL string, opts ...LinearCacheOption) *LinearCache {
 }
 
 // UpdateResource updates a resource in the collection.
-func (cache *LinearCache) UpdateResource(name string, res types.Resource) error {
+func (c *LinearCache) UpdateResource(name string, res types.Resource) error {
 	if res == nil {
 		return errors.New("nil resource")
 	}
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	cache.version += 1
-	cache.versionVector[name] = cache.version
-	cache.resources[name] = res
+	c.version += 1
+	c.versionVector[name] = c.version
+	c.resources[name] = res
+
+	// Calculate our new delta version hash
+	marshaledResource, err := cache.MarshalResource(res)
+	if err != nil {
+		return err
+	}
+
+	v := cache.HashResource(marshaledResource)
+	if v == "" {
+		return errors.New("failed to create resource hash")
+	}
+	c.deltaVersionVector[name] = v
 
 	// TODO: batch watch closures to prevent rapid updates
-	cache.notifyAll(map[string]struct{}{name: {}})
+	c.notifyAll(map[string]struct{}{name: {}})
+	c.notifyAllDelta(map[string]struct{}{name: {}})
 
 	return nil
 }
@@ -132,8 +148,12 @@ func (cache *LinearCache) DeleteResource(name string) error {
 	delete(cache.versionVector, name)
 	delete(cache.resources, name)
 
+	// delta xDS
+	delete(cache.deltaVersionVector, name)
+
 	// TODO: batch watch closures to prevent rapid updates
 	cache.notifyAll(map[string]struct{}{name: {}})
+	cache.notifyAllDelta(map[string]struct{}{name: {}})
 	return nil
 }
 
