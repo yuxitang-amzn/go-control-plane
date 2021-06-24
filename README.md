@@ -11,6 +11,7 @@ implements the discovery service APIs defined in
 
 ## Scope
 
+This is an extension to the original sample. It reads routes from DynamoDB and reflects it accordingly. 
 Due to the variety of platforms out there, there is no single
 control plane implementation that can satisfy everyone's needs. Hence this
 code base does not attempt to be a full scale control plane for a fleet of
@@ -94,3 +95,18 @@ repository:
 ## Usage
 
 The [example server](internal/example/README.md) demonstrates how to integrate the go-control-plane with your code.
+
+## Set up
+1. DynamoDB: Set up a table in us-east-1 with name domains and 2 fields  
+  * prefix
+  * url
+2. Create a user with policy AmazonDynamoDBReadOnlyAccess. Generate credential for it  
+3. Set aws credentials in environment variables.  
+
+~~~
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=...
+~~~
+
+4. Run the original `make example` command.

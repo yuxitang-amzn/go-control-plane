@@ -14,7 +14,6 @@
 package example
 
 import (
-	"fmt"
 	"strconv"
 	"time"
 
@@ -184,7 +183,6 @@ func makeRoutes(dynamicRoutes []DynamicRoute) *route.RouteConfiguration {
 	var routes []*route.Route
 
 	for _, dynamicRoute := range dynamicRoutes {
-		fmt.Println("%+v", makeScopedRoute(dynamicRoute))
 		routes = append(routes, makeScopedRoute(dynamicRoute))
 	}
 
