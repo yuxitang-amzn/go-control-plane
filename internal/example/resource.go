@@ -14,6 +14,8 @@
 package example
 
 import (
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/golang/protobuf/ptypes"
@@ -35,72 +37,10 @@ const (
 	RouteName    = "local_route"
 	ListenerName = "listener_0"
 	ListenerPort = 10000
-	UpstreamHost = "www.envoyproxy.io"
 	UpstreamPort = 80
 )
 
-func makeCluster(clusterName string) *cluster.Cluster {
-	return &cluster.Cluster{
-		Name:                 clusterName,
-		ConnectTimeout:       ptypes.DurationProto(5 * time.Second),
-		ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_LOGICAL_DNS},
-		LbPolicy:             cluster.Cluster_ROUND_ROBIN,
-		LoadAssignment:       makeEndpoint(clusterName),
-		DnsLookupFamily:      cluster.Cluster_V4_ONLY,
-	}
-}
-
-func makeEndpoint(clusterName string) *endpoint.ClusterLoadAssignment {
-	return &endpoint.ClusterLoadAssignment{
-		ClusterName: clusterName,
-		Endpoints: []*endpoint.LocalityLbEndpoints{{
-			LbEndpoints: []*endpoint.LbEndpoint{{
-				HostIdentifier: &endpoint.LbEndpoint_Endpoint{
-					Endpoint: &endpoint.Endpoint{
-						Address: &core.Address{
-							Address: &core.Address_SocketAddress{
-								SocketAddress: &core.SocketAddress{
-									Protocol: core.SocketAddress_TCP,
-									Address:  UpstreamHost,
-									PortSpecifier: &core.SocketAddress_PortValue{
-										PortValue: UpstreamPort,
-									},
-								},
-							},
-						},
-					},
-				},
-			}},
-		}},
-	}
-}
-
-func makeRoute(routeName string, clusterName string) *route.RouteConfiguration {
-	return &route.RouteConfiguration{
-		Name: routeName,
-		VirtualHosts: []*route.VirtualHost{{
-			Name:    "local_service",
-			Domains: []string{"*"},
-			Routes: []*route.Route{{
-				Match: &route.RouteMatch{
-					PathSpecifier: &route.RouteMatch_Prefix{
-						Prefix: "/",
-					},
-				},
-				Action: &route.Route_Route{
-					Route: &route.RouteAction{
-						ClusterSpecifier: &route.RouteAction_Cluster{
-							Cluster: clusterName,
-						},
-						HostRewriteSpecifier: &route.RouteAction_HostRewriteLiteral{
-							HostRewriteLiteral: UpstreamHost,
-						},
-					},
-				},
-			}},
-		}},
-	}
-}
+var version = 0
 
 func makeHTTPListener(listenerName string, route string) *listener.Listener {
 	// HTTP filter configuration
@@ -164,14 +104,96 @@ func makeConfigSource() *core.ConfigSource {
 	return source
 }
 
-func GenerateSnapshot() cache.Snapshot {
+func GenerateSnapshot(dynamicRoutes []DynamicRoute) cache.Snapshot {
+	version += 1
+
+	var clusters []types.Resource
+	for _, dynamicRoute := range dynamicRoutes {
+		clusters = append(clusters, makeCluster(dynamicRoute))
+	}
+
 	return cache.NewSnapshot(
-		"1",
+		strconv.Itoa(version),
 		[]types.Resource{}, // endpoints
-		[]types.Resource{makeCluster(ClusterName)},
-		[]types.Resource{makeRoute(RouteName, ClusterName)},
+		clusters,
+		[]types.Resource{makeRoutes(dynamicRoutes)},
 		[]types.Resource{makeHTTPListener(ListenerName, RouteName)},
 		[]types.Resource{}, // runtimes
 		[]types.Resource{}, // secrets
 	)
+}
+
+func makeCluster(dynamicRoute DynamicRoute) *cluster.Cluster {
+	return &cluster.Cluster{
+		Name:                 dynamicRoute.Prefix,
+		ConnectTimeout:       ptypes.DurationProto(5 * time.Second),
+		ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_LOGICAL_DNS},
+		LbPolicy:             cluster.Cluster_ROUND_ROBIN,
+		LoadAssignment:       makeEndpoint(dynamicRoute),
+		DnsLookupFamily:      cluster.Cluster_V4_ONLY,
+	}
+}
+
+func makeEndpoint(dynamicRoute DynamicRoute) *endpoint.ClusterLoadAssignment {
+	return &endpoint.ClusterLoadAssignment{
+		ClusterName: dynamicRoute.Prefix,
+		Endpoints: []*endpoint.LocalityLbEndpoints{{
+			LbEndpoints: []*endpoint.LbEndpoint{{
+				HostIdentifier: &endpoint.LbEndpoint_Endpoint{
+					Endpoint: &endpoint.Endpoint{
+						Address: &core.Address{
+							Address: &core.Address_SocketAddress{
+								SocketAddress: &core.SocketAddress{
+									Protocol: core.SocketAddress_TCP,
+									Address:  dynamicRoute.Url,
+									PortSpecifier: &core.SocketAddress_PortValue{
+										PortValue: UpstreamPort,
+									},
+								},
+							},
+						},
+					},
+				},
+			}},
+		}},
+	}
+}
+
+func makeScopedRoute(dynamicRoute DynamicRoute) *route.Route {
+	return &route.Route{
+		Match: &route.RouteMatch{
+			PathSpecifier: &route.RouteMatch_Prefix{
+				("/" + dynamicRoute.Prefix),
+			},
+		},
+		Action: &route.Route_Route{
+			Route: &route.RouteAction{
+				ClusterSpecifier: &route.RouteAction_Cluster{
+					Cluster: dynamicRoute.Prefix,
+				},
+				HostRewriteSpecifier: &route.RouteAction_HostRewriteLiteral{
+					HostRewriteLiteral: dynamicRoute.Url,
+				},
+				PrefixRewrite: "/",
+			},
+		},
+	}
+}
+
+func makeRoutes(dynamicRoutes []DynamicRoute) *route.RouteConfiguration {
+	var routes []*route.Route
+
+	for _, dynamicRoute := range dynamicRoutes {
+		fmt.Println("%+v", makeScopedRoute(dynamicRoute))
+		routes = append(routes, makeScopedRoute(dynamicRoute))
+	}
+
+	return &route.RouteConfiguration{
+		Name: RouteName,
+		VirtualHosts: []*route.VirtualHost{{
+			Name:    "local_service",
+			Domains: []string{"*"},
+			Routes:  routes,
+		}},
+	}
 }

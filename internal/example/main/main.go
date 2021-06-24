@@ -14,6 +14,8 @@
 package main
 
 import (
+	"time"
+
 	"context"
 	"flag"
 	"os"
@@ -53,7 +55,8 @@ func main() {
 	cache := cache.NewSnapshotCache(false, cache.IDHash{}, l)
 
 	// Create the snapshot that we'll serve to Envoy
-	snapshot := example.GenerateSnapshot()
+	routes := example.FetchRoutes()
+	snapshot := example.GenerateSnapshot(routes)
 	if err := snapshot.Consistent(); err != nil {
 		l.Errorf("snapshot inconsistency: %+v\n%+v", snapshot, err)
 		os.Exit(1)
@@ -65,6 +68,14 @@ func main() {
 		l.Errorf("snapshot error %q for %+v", err, snapshot)
 		os.Exit(1)
 	}
+
+	go func() {
+		for _ = range time.Tick(5 * time.Second) {
+			routes := example.FetchRoutes()
+			snapshot := example.GenerateSnapshot(routes)
+			cache.SetSnapshot(nodeID, snapshot)
+		}
+	}()
 
 	// Run the xDS server
 	ctx := context.Background()
